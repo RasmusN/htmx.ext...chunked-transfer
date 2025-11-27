@@ -7,6 +7,15 @@ import type { HtmxExtension } from "htmx.org";
 (function () {
   let api: HtmxApi;
 
+  // Helper function to detect chunked transfer (HTTP/1.1) or streaming (HTTP/2)
+  function isChunkedTransfer(xhr: XMLHttpRequest): boolean {
+    const te = xhr.getResponseHeader("Transfer-Encoding");
+    const cl = xhr.getResponseHeader("Content-Length");
+    const isHttp1Chunked = te === "chunked";
+    const isStreamingWithoutLength = !te && !cl; // typical HTTP/2 streaming
+    return isHttp1Chunked || isStreamingWithoutLength;
+  }
+
   htmx.defineExtension("chunked-transfer", {
     init: function (apiRef: HtmxApi) {
       api = apiRef;
@@ -21,10 +30,10 @@ import type { HtmxExtension } from "htmx.org";
         (xhr as any)._chunkedLastLen = 0;
 
         xhr.onprogress = function () {
-          const is_chunked =
-            xhr.getResponseHeader("Transfer-Encoding") === "chunked";
+          if (!isChunkedTransfer(xhr)) return;
 
-          if (!is_chunked) return;
+          const swapSpec = api.getSwapSpecification(elt);
+          if (swapSpec.swapStyle !== "innerHTML") return;
 
           const mode = (xhr as any)._chunkedMode || "append";
           const full = (xhr.response as string) ?? "";
@@ -49,7 +58,6 @@ import type { HtmxExtension } from "htmx.org";
             response = extension.transformResponse(response, xhr, elt);
           });
 
-          const swapSpec = api.getSwapSpecification(elt);
           const settleInfo = api.makeSettleInfo(elt);
           if (api.swap) {
             api.swap(target, response, swapSpec);
@@ -75,9 +83,7 @@ import type { HtmxExtension } from "htmx.org";
         const mode = (xhr as any)._chunkedMode;
         if (mode !== "swap") return;
 
-        const is_chunked =
-          xhr.getResponseHeader("Transfer-Encoding") === "chunked";
-        if (!is_chunked) return;
+        if (!isChunkedTransfer(xhr)) return;
 
         detail.shouldSwap = false;
       }
